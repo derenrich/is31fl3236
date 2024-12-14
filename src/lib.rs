@@ -38,46 +38,18 @@ pub trait Model {
     fn channel_count() -> usize;
 }
 
-/// The IS31FL3205 is an LED driver with 12 constant current channels.
-pub struct IS31FL3205;
-impl Model for IS31FL3205 {
-    fn register_value(register: Register) -> u8 {
-        match register {
-            Register::PowerControl => 0x00,
-            Register::Pwm => 0x07,
-            Register::Update => 0x49,
-            Register::LedScaling => 0x4D,
-            Register::GlobalCurrentControl => 0x6E,
-            Register::PhaseDelayClockPhase => 0x70,
-            Register::OpenShortDetectEnable => 0x71,
-            Register::LedOpenShort => 0x72,
-            Register::TemperatureSensor => 0x77,
-            Register::SpreadSpectrum => 0x78,
-            Register::Reset => 0x7F,
-        }
-    }
-
-    fn channel_count() -> usize {
-        12
-    }
-}
-
 /// The IS31FL3237 is an LED driver with 36 constant current channels.
-pub struct IS31FL3237;
-impl Model for IS31FL3237 {
+pub struct IS31FL3236;
+impl Model for IS31FL3236 {
     fn register_value(register: Register) -> u8 {
         match register {
-            Register::PowerControl => 0x00,
+            Register::Shutdown => 0x00,
             Register::Pwm => 0x01,
-            Register::Update => 0x49,
-            Register::LedScaling => 0x4A,
-            Register::GlobalCurrentControl => 0x6E,
-            Register::PhaseDelayClockPhase => 0x70,
-            Register::OpenShortDetectEnable => 0x71,
-            Register::LedOpenShort => 0x72,
-            Register::TemperatureSensor => 0x77,
-            Register::SpreadSpectrum => 0x78,
-            Register::Reset => 0x7F,
+            Register::Update => 0x25,
+            Register::LedControl => 0x26,
+            Register::GlobalOutput => 0x4a,
+            Register::OutputFrequency => 0x4b,
+            Register::Reset => 0x4f,
         }
     }
 
@@ -89,25 +61,16 @@ impl Model for IS31FL3237 {
 #[derive(Copy, Clone)]
 pub enum Register {
     /// Power control register
-    PowerControl,
+    Shutdown,
     /// PWM register
     Pwm,
     /// Update the PWM and Scaling data
     Update,
-    /// Update the PWM and Scaling data
-    LedScaling,
-    /// Control Global DC current/SSD
-    GlobalCurrentControl,
-    /// Phase Delay and Clock Phase
-    PhaseDelayClockPhase,
-    /// Open short detect enable
-    OpenShortDetectEnable,
-    /// Open short information. TODO
-    LedOpenShort,
-    /// Temperature information. TODO
-    TemperatureSensor,
-    /// Spread spectrum control register. TODO
-    SpreadSpectrum,
+    // LED enable and current setting
+    LedControl,
+    GlobalOutput,
+    /// Output frequency of the device
+    OutputFrequency,
     /// Reset all registers
     Reset,
 }
@@ -117,39 +80,30 @@ pub enum SoftwareShutdownMode {
     Normal = 0b1,
 }
 
-pub enum PwmResolution {
-    Eightbit = 0b00,
-    Tenbit = 0b01,
-    TwelveBit = 0b10,
-    SixteenBit = 0b11,
+pub enum OutputCurrent {
+    IMax = 0b00,
+    IMaxDiv2 = 0b01,
+    IMaxDiv3 = 0b10,
+    IMaxDiv4 = 0b11,
 }
 
-pub enum OscillatorClock {
-    SixteenMHz = 0b000,
-    EightMHz = 0b001,
-    OneMHz = 0b010,
-    FiveHundredKHz = 0b011,
-    TwoHundredFiftyKHz = 0b100,
-    OneHundredTwentyFiveKHz = 0b101,
-    SixtyTwoKHz = 0b110,
-    ThirtyOneKHz = 0b111,
+pub enum OutputMode {
+    LEDOn = 0b0,
+    LEDOff = 0b1,
 }
 
-pub enum OpenShortDetect {
-    DetectDisable = 0x00,
-    ShortDetectEnable = 0x02,
-    OpenDetectEnable = 0x03,
+pub enum OutputFrequency {
+    ThreeKHz = 0b0,
+    TwentyTwoKHz = 0b1,
 }
 
-pub struct Is31fl32xx<MODEL, I2C, EN> {
+pub struct Is31fl32xx<MODEL, I2C> {
     /// `embedded-hal` compatible I2C instance
     interface: Option<I2C>,
-    /// Transfer callback
+    /// Transfer callbacks
     transfer_callback: Option<fn(addr: u8, data: &[u8])>,
     /// Device address
     address: u8,
-    // Enable line
-    enable: EN,
     /// Model
     model: PhantomData<MODEL>,
 }
@@ -209,29 +163,8 @@ where
         self
     }
 
-    /// Defines a power control message for initialising oscillator clock, pwm resolution
-    /// and device enable / disable
-    pub fn power_control(
-        osc: OscillatorClock,
-        pms: PwmResolution,
-        ssd: SoftwareShutdownMode,
-    ) -> Self {
-        Self::new(
-            Register::PowerControl,
-            &[(osc as u8) << 4 | (pms as u8) << 1 | (ssd as u8)],
-        )
-    }
-
-    /// Defines a pulse width modulation message for setting the illuminosity of a given channel
-    /// For example, setting channel 0 to 0xFF will set it to the brightest value in 8bit mode
-    /// The "Update" message must be sent to see the effect of modifications to the Pwm register
-    pub fn pulse_width_modulation(channel: u8, value: u16, resolution: PwmResolution) -> Self {
-        match resolution {
-            PwmResolution::Eightbit => {
-                Self::new(Register::Pwm, &[value as u8]).register_offset(channel * 2)
-            }
-            _ => Self::new(Register::Pwm, &value.to_be_bytes()).register_offset(channel * 2),
-        }
+    fn pwm(channel: u8, value: u8) -> Self {
+        Self::new(Register::Pwm, &[value]).register_offset(channel)
     }
 
     /// Update all PWM registers with the loaded values
@@ -240,33 +173,42 @@ where
         Self::new(Register::Update, &[0x00])
     }
 
-    /// Adjust the global current usage of the device, see manual for detail about current usage
-    pub fn global_current_control(value: u8) -> Self {
-        Self::new(Register::GlobalCurrentControl, &[value])
+    pub fn led_control(channel: u8, current: OutputCurrent, mode: OutputMode) -> Self {
+        Self::new(Register::LedControl, &[(current as u8) << 2 | (mode as u8)]).register_offset(channel)
     }
 
-    /// Adjust individual LED current usage, see manual for detail about current usage
-    pub fn led_scaling(channel: u8, value: u8) -> Self {
-        Self::new(Register::LedScaling, &[value]).register_offset(channel)
+    /// Adjust the global current usage of the device, see manual for detail about current usage
+    pub fn global_output(value: OutputMode) -> Self {
+        Self::new(Register::GlobalOutput, &[value as u8])
+    }
+
+    pub fn shutdown(mode: SoftwareShutdownMode) -> Self {
+        Self::new(Register::Shutdown, &[mode as u8])
+    }
+
+    pub fn output_frequency(frequency: OutputFrequency) -> Self {
+        Self::new(Register::OutputFrequency, &[frequency as u8])
+    }
+
+    pub fn reset() -> Self {
+        Self::new(Register::Reset, &[0x00])
     }
 }
 
-impl<MODEL, I2C, EN, S> Is31fl32xx<MODEL, I2C, EN>
+impl<MODEL, I2C, S> Is31fl32xx<MODEL, I2C>
 where
     MODEL: Model,
     I2C: Write<u8, Error = S> + Read<u8, Error = S> + WriteRead<u8, Error = S>,
-    EN: OutputPin,
 {
     /// Initialize the Is31fl32xx with a flexible asynchronous callback interface
     /// * `address` - User definable address which should associate with the physical AD pin(s) of the device
     /// * `en` - The enable line
     /// * `callback` - Callback for custom transmission of the address and dataframe.
-    pub fn init_with_callback(address: u8, en: EN, callback: fn(addr: u8, data: &[u8])) -> Self {
+    pub fn init_with_callback(address: u8, callback: fn(addr: u8, data: &[u8])) -> Self {
         Self {
             address,
             interface: None,
             transfer_callback: Some(callback),
-            enable: en,
             model: PhantomData,
         }
     }
@@ -275,19 +217,18 @@ where
     /// * `address` - User definable address which should associate with the physical AD pin(s) of the device
     /// * `en` - The enable line
     /// * `i2c` - i2c interface
-    pub fn init_with_i2c(address: u8, en: EN, i2c: I2C) -> Self {
+    pub fn init_with_i2c(address: u8, i2c: I2C) -> Self {
         Self {
             address,
             interface: Some(i2c),
             transfer_callback: None,
-            enable: en,
             model: PhantomData,
         }
     }
 
     /// Release underlying resources
-    pub fn release(self) -> (EN, Option<I2C>) {
-        (self.enable, self.interface)
+    pub fn release(self) -> Option<I2C> {
+        self.interface
     }
 
     /// Write a Message to the Is31fl32xx, will either use the blocking i2c interface
@@ -297,7 +238,7 @@ where
 
         // Take the first 2 bits of the user configurable address and
         // OR it with the hardcoded manufacturer address
-        let address = 0x34 | ((self.address & 0x3) << 1);
+        let address = 0b1111 | ((self.address & 0x3) << 1);
 
         let data = &mut buff[0..message.data_length + 1];
         data[0] = message.register_value() + message.register_offset;
@@ -317,64 +258,42 @@ where
         Ok(())
     }
 
-    /// Enable the device
-    /// ub fn reset<DEL: DelayMs<u8>>(&mut self, delay: &mut DEL) -> Result<(), I2cError>
-    /// Will bring the enable line low and then high, rebooting the device to a default state
-    /// And then configure the device with the desired clock rate, pwm resolution and software enable / disable state
-    pub fn enable_device<DEL: DelayMs<u8>>(
+    pub fn set_shutdown<DEL: DelayMs<u8>>(
         &mut self,
-        delay: &mut DEL,
-        osc: OscillatorClock,
-        pms: PwmResolution,
-        ssd: SoftwareShutdownMode,
+        mode: SoftwareShutdownMode,
     ) -> Result<(), Error<S>> {
-        // Set the enable line low to shutdown the device
-        self.enable.set_low().map_err(|_| Error::EnableLine)?;
-        delay.delay_ms(10_u8);
-        // Enable line must be pulled high for operation
-        self.enable.set_high().map_err(|_| Error::EnableLine)?;
-        delay.delay_ms(10_u8);
-        self.write(Message::power_control(osc, pms, ssd))
+        self.write(Message::shutdown(mode))
+    }
+
+    pub fn reset(&mut self) -> Result<(), Error<S>> {
+        self.write(Message::reset())
+    }
+
+    pub fn set_output_frequency(&mut self, frequency: OutputFrequency) -> Result<(), Error<S>> {
+        self.write(Message::output_frequency(frequency))
     }
 
     /// Set the global current usage, a value of 0xFF will use the maximum current as allowed by the Rin resistance
-    pub fn set_global_current(&mut self, value: u8) -> Result<(), Error<S>> {
-        self.write(Message::global_current_control(value))
+    pub fn set_global_output(&mut self, value: OutputMode) -> Result<(), Error<S>> {
+        self.write(Message::global_output(value))
     }
 
-    /// Set all leds to have the desired led scaling, a value of 0xFF will use the maximum current with respect to the global current
-    /// configuration. See user manual for more information
-    pub fn set_all_led_scaling(&mut self, value: u8) -> Result<(), Error<S>> {
-        for i in 0..MODEL::channel_count() {
-            self.write(Message::led_scaling(i as u8, value))?;
-        }
-        Ok(())
-    }
-    /// Set the led to have the desired led scaling, a value of 0xFF will use the maximum current with respect to the global current
-    /// configuration. See user manual for more information
-    pub fn set_led_scaling(&mut self, channel: u8, value: u8) -> Result<(), Error<S>> {
-        self.write(Message::led_scaling(channel, value))
-    }
-
-    /// Shutdown the device with a software shutdown and then pull the enable line low to physically turn off the device
-    pub fn shutdown_device(&mut self) -> Result<(), Error<S>> {
-        self.write(Message::power_control(
-            OscillatorClock::FiveHundredKHz,
-            PwmResolution::Eightbit,
-            SoftwareShutdownMode::SoftwareShutdown,
-        ))?;
-        self.enable.set_low().map_err(|_| Error::EnableLine)
-    }
-
-    /// Set the desired channel value.
-    /// * `channel` - index of led starting at 0
-    /// * `value` - When operating in modes less than 16bit, then only the desired number of bits will be considered
-    pub fn set(&mut self, channel: u8, value: u16, res: PwmResolution) -> Result<(), Error<S>> {
+    pub fn set_pwm(&mut self, channel: u8, value: u8) -> Result<(), Error<S>> {
         if channel as usize > MODEL::channel_count() - 1 {
             return Err(Error::ChannelOutOfBounds);
         }
 
-        self.write(Message::pulse_width_modulation(channel, value, res))?;
+        self.write(Message::pwm(channel, value))?;
+        // TODO: do we need this update?
+        self.write(Message::update())
+    }
+
+    pub fn set_led(&mut self, channel: u8, current: OutputCurrent, state: OutputMode) -> Result<(), Error<S>> {
+        if channel as usize > MODEL::channel_count() - 1 {
+            return Err(Error::ChannelOutOfBounds);
+        }
+
+        self.write(Message::led_control(channel, current, state))?;
         self.write(Message::update())
     }
 }
