@@ -87,8 +87,13 @@ pub enum OutputCurrent {
 }
 
 pub enum OutputMode {
-    LEDOn = 0b0,
-    LEDOff = 0b1,
+    LEDOff = 0b0,
+    LEDOn = 0b1,
+}
+
+pub enum GlobalEnable {
+    Disable = 0b1,
+    Enable = 0b0,
 }
 
 pub enum OutputFrequency {
@@ -177,8 +182,8 @@ where
     }
 
     /// Adjust the global current usage of the device, see manual for detail about current usage
-    pub fn global_output(value: OutputMode) -> Self {
-        Self::new(Register::GlobalOutput, &[value as u8])
+    pub fn global_output(value: GlobalEnable) -> Self {
+        Self::new(Register::GlobalEnable, &[value as u8])
     }
 
     pub fn shutdown(mode: SoftwareShutdownMode) -> Self {
@@ -237,7 +242,7 @@ where
 
         // Take the first 2 bits of the user configurable address and
         // OR it with the hardcoded manufacturer address
-        let address = 0b1111 | ((self.address & 0x3) << 1);
+        let address = 0b1111000 | ((self.address & 0x3) << 1);
 
         let data = &mut buff[0..message.data_length + 1];
         data[0] = message.register_value() + message.register_offset;
@@ -273,7 +278,7 @@ where
     }
 
     /// Set the global current usage, a value of 0xFF will use the maximum current as allowed by the Rin resistance
-    pub fn set_global_output(&mut self, value: OutputMode) -> Result<(), Error<S>> {
+    pub fn set_global_output(&mut self, value: GlobalEnable) -> Result<(), Error<S>> {
         self.write(Message::global_output(value))
     }
 
