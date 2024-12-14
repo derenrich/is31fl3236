@@ -181,7 +181,6 @@ where
         Self::new(Register::LedControl, &[(current as u8) << 1 | (mode as u8)]).register_offset(channel)
     }
 
-    /// Adjust the global current usage of the device, see manual for detail about current usage
     pub fn global_output(value: GlobalEnable) -> Self {
         Self::new(Register::GlobalOutput, &[value as u8])
     }
@@ -242,7 +241,7 @@ where
 
         // Take the first 2 bits of the user configurable address and
         // OR it with the hardcoded manufacturer address
-        let address = 0b1111000 | ((self.address & 0x3) << 1);
+        let address = 0b111100 | ((self.address & 0x3) << 1);
 
         let data = &mut buff[0..message.data_length + 1];
         data[0] = message.register_value() + message.register_offset;
@@ -277,7 +276,6 @@ where
         self.write(Message::output_frequency(frequency))
     }
 
-    /// Set the global current usage, a value of 0xFF will use the maximum current as allowed by the Rin resistance
     pub fn set_global_output(&mut self, value: GlobalEnable) -> Result<(), Error<S>> {
         self.write(Message::global_output(value))
     }
