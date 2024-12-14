@@ -183,7 +183,7 @@ where
 
     /// Adjust the global current usage of the device, see manual for detail about current usage
     pub fn global_output(value: GlobalEnable) -> Self {
-        Self::new(Register::GlobalEnable, &[value as u8])
+        Self::new(Register::GlobalOutput, &[value as u8])
     }
 
     pub fn shutdown(mode: SoftwareShutdownMode) -> Self {
