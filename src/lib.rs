@@ -173,7 +173,7 @@ where
     }
 
     pub fn led_control(channel: u8, current: OutputCurrent, mode: OutputMode) -> Self {
-        Self::new(Register::LedControl, &[(current as u8) << 2 | (mode as u8)]).register_offset(channel)
+        Self::new(Register::LedControl, &[(current as u8) << 1 | (mode as u8)]).register_offset(channel)
     }
 
     /// Adjust the global current usage of the device, see manual for detail about current usage
@@ -293,6 +293,7 @@ where
         }
 
         self.write(Message::led_control(channel, current, state))?;
+        // TODO: do we need this update?
         self.write(Message::update())
     }
 }
