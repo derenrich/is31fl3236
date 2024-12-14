@@ -6,7 +6,6 @@
 #![allow(unused)]
 
 use core::marker::PhantomData;
-use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::{
     blocking::i2c::{Read, Write, WriteRead},
     digital::v2::OutputPin,
@@ -258,7 +257,7 @@ where
         Ok(())
     }
 
-    pub fn set_shutdown<DEL: DelayMs<u8>>(
+    pub fn set_shutdown(
         &mut self,
         mode: SoftwareShutdownMode,
     ) -> Result<(), Error<S>> {
